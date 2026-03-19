@@ -239,23 +239,30 @@ for s = 1:nSubjects
             end
         end
 
-        % Figure B1 - RMS both channels per rep
-        fig = figure('Visible','off','Position',[100 100 900 380]);
-        subplot(1,2,1);
+        % Figure B1 - RMS, energy, and SNR per rep, both channels
+        fig = figure('Visible','off','Position',[100 100 1200 380]);
+        subplot(1,3,1);
         bar(rms_vals);
         legend('Channel 1','Channel 2','Location','northeast');
         xlabel('Repetition'); ylabel('RMS Amplitude (V)');
         title(sprintf('%s | "%s" - RMS per rep', subLabel, vname));
         xticks(1:nReps); grid on;
-        subplot(1,2,2);
+        subplot(1,3,2);
+        bar(energy_vals);
+        legend('Channel 1','Channel 2','Location','northeast');
+        xlabel('Repetition'); ylabel('Energy (V^2)');
+        title(sprintf('%s | "%s" - Energy per rep', subLabel, vname));
+        xticks(1:nReps); grid on;
+        subplot(1,3,3);
         bar(snr_vals);
         legend('Channel 1','Channel 2','Location','northeast');
         xlabel('Repetition'); ylabel('SNR proxy (dB)');
         title(sprintf('%s | "%s" - SNR per rep', subLabel, vname));
         xticks(1:nReps); grid on;
         sgtitle(sprintf('Figure B1 (%s, %s): Signal size - both channels', subLabel, vname));
-        caption = sprintf(['RMS amplitude (left) and SNR proxy (right) per repetition for ' ...
-                           'both channels, subject %s, vowel "%s". SNR is the ratio of power ' ...
+        caption = sprintf(['RMS amplitude (left), signal energy (centre), and SNR proxy (right) ' ...
+                           'per repetition for both channels, subject %s, vowel "%s". ' ...
+                           'Energy is the sum of squared samples. SNR is the ratio of power ' ...
                            'in the central 80%% of the window to power in the edge 5%% ' ...
                            '(pre/post-burst noise floor).'], subLabel, vname);
         annotation('textbox',[0 0 1 0.04],'String',caption,'EdgeColor','none', ...
@@ -438,13 +445,28 @@ for s = 1:nSubjects
         exportgraphics(fig, fullfile(FIG_DIR, sprintf('D2_%s_%s_filter.png', subLabel, vname)), 'Resolution',300);
         close(fig);
 
-        % Figure D3 - Metric change under downsampling
-        all_configs = {'Original','Fs/2','Fs/4'};
-        rms_cmp = zeros(1,3);
-        bw_cmp  = zeros(1,3);
-        rms_cmp(1) = rms(sig_orig);
-        bw_cmp(1)  = all_metrics{s,v}.bandwidth(1, D.chUsed);
+        % Figure D3 - Metric change: original, designed LPF, Fs/2, Fs/4
+        all_configs = {'Original', sprintf('LPF\n%.0fHz',fc_design), 'Fs/2', 'Fs/4'};
+        rms_cmp = zeros(1,4);
+        bw_cmp  = zeros(1,4);
 
+        % baseline: original signal
+        rms_cmp(1) = rms(sig_orig);
+        N_orig = numel(sig_orig);
+        X_orig = fft(sig_orig .* hann(N_orig), N_orig);
+        mag_orig = abs(X_orig(1:floor(N_orig/2)+1));
+        fr_orig  = (0:floor(N_orig/2)) * Fs / N_orig;
+        cum_orig = cumsum(mag_orig.^2) / sum(mag_orig.^2);
+        bw_cmp(1) = fr_orig(find(cum_orig >= BW_FRACTION, 1));
+
+        % designed LPF at original Fs (no downsampling)
+        rms_cmp(2) = rms(sig_filtered);
+        X_lp   = fft(sig_filtered .* hann(N_orig), N_orig);
+        mag_lp = abs(X_lp(1:floor(N_orig/2)+1));
+        cum_lp = cumsum(mag_lp.^2) / sum(mag_lp.^2);
+        bw_cmp(2) = fr_orig(find(cum_lp >= BW_FRACTION, 1));
+
+        % downsampled versions
         for di = 1:numel(DS_FACTORS)
             fac   = DS_FACTORS(di);
             Fs_ds = Fs / fac;
@@ -452,30 +474,34 @@ for s = 1:nSubjects
             [b_aa, a_aa] = butter(FILT_ORDER, fc_aa/(Fs/2), 'low');
             sig_ds = filtfilt(b_aa, a_aa, sig_orig);
             sig_ds = sig_ds(1:fac:end);
-            rms_cmp(di+1) = rms(sig_ds);
+            rms_cmp(di+2) = rms(sig_ds);
             N_ds   = numel(sig_ds);
             X_ds   = fft(sig_ds .* hann(N_ds), N_ds);
             mag_ds = abs(X_ds(1:floor(N_ds/2)+1));
             fr_ds  = (0:floor(N_ds/2)) * Fs_ds / N_ds;
             cum_ds = cumsum(mag_ds.^2) / sum(mag_ds.^2);
-            idx_ds = find(cum_ds >= BW_FRACTION, 1);
-            bw_cmp(di+1) = fr_ds(idx_ds);
+            bw_cmp(di+2) = fr_ds(find(cum_ds >= BW_FRACTION, 1));
         end
 
-        fig = figure('Visible','off','Position',[100 100 800 350]);
+        fig = figure('Visible','off','Position',[100 100 900 350]);
+        bar_colours = [0.3 0.6 0.9; 0.2 0.7 0.4; 0.8 0.5 0.2; 0.75 0.3 0.3];
         subplot(1,2,1);
-        bar(rms_cmp,'FaceColor',[0.3 0.6 0.9]);
+        b = bar(rms_cmp, 'FaceColor','flat');
+        for ci = 1:4, b.CData(ci,:) = bar_colours(ci,:); end
         set(gca,'XTickLabel',all_configs);
         ylabel('RMS (V)');
-        title(sprintf('%s | "%s" - RMS vs Fs', subLabel, vname)); grid on;
+        title(sprintf('%s | "%s" - RMS', subLabel, vname)); grid on;
         subplot(1,2,2);
-        bar(bw_cmp,'FaceColor',[0.75 0.4 0.5]);
+        b = bar(bw_cmp, 'FaceColor','flat');
+        for ci = 1:4, b.CData(ci,:) = bar_colours(ci,:); end
         set(gca,'XTickLabel',all_configs);
         ylabel(sprintf('BW_{%d%%} (Hz)', round(BW_FRACTION*100)));
-        title(sprintf('%s | "%s" - BW vs Fs', subLabel, vname)); grid on;
-        sgtitle(sprintf('Figure D3 (%s, %s): Metrics vs sampling rate', subLabel, vname));
-        caption = sprintf(['Effect of downsampling on RMS (left) and %d%% essential ' ...
-                           'bandwidth (right) for %s "%s" Rep 1.'], round(BW_FRACTION*100), subLabel, vname);
+        title(sprintf('%s | "%s" - BW', subLabel, vname)); grid on;
+        sgtitle(sprintf('Figure D3 (%s, %s): Effect of filtering and downsampling on metrics', subLabel, vname));
+        caption = sprintf(['RMS (left) and %d%% essential bandwidth (right) for %s "%s" Rep 1 ' ...
+                           'under four conditions: original signal, designed LPF at full Fs ' ...
+                           '(fc=%.0f Hz), and downsampled to Fs/2 and Fs/4 with anti-aliasing.'], ...
+                           round(BW_FRACTION*100), subLabel, vname, fc_design);
         annotation('textbox',[0 0 1 0.04],'String',caption,'EdgeColor','none', ...
                     'FontSize',7,'FontAngle','italic','HorizontalAlignment','center');
         exportgraphics(fig, fullfile(FIG_DIR, sprintf('D3_%s_%s_metrics_vs_fs.png', subLabel, vname)), 'Resolution',300);
