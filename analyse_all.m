@@ -267,7 +267,7 @@ for s = 1:nSubjects
                            '(pre/post-burst noise floor).'], subLabel, vname);
         annotation('textbox',[0 0 1 0.04],'String',caption,'EdgeColor','none', ...
                     'FontSize',7,'FontAngle','italic','HorizontalAlignment','center');
-        exportgraphics(fig, fullfile(FIG_DIR, sprintf('B1_%s_%s_rms_snr.png', subLabel, vname)), 'Resolution',300);
+        exportgraphics(fig, fullfile(FIG_DIR, sprintf('B1_%s_%s_rms_energy_snr.png', subLabel, vname)), 'Resolution',300);
         close(fig);
 
         % Store in all_metrics
