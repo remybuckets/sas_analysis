@@ -1,5 +1,12 @@
 % analyse_all.m
-% CW2 - 5CCE2SAS Signals and Systems
+% TEAM AO
+%
+%   Navid Khojasteh-Abbasi
+%   Jeremy Holguin
+%   Zoe Wills
+%   Anne Mu
+%   Sally Oppenheim
+%   Sufiya Al Assad   
 %
 % Fully automated analysis pipeline for vowel phonation data.
 % Processes multiple subjects, both vowels, both microphone channels.
@@ -14,11 +21,6 @@
 % All figures saved to ./figures/ as 300 dpi PNGs.
 % All metrics saved to all_metrics.mat.
 % Summary table printed to console and saved to summary_table.csv.
-%
-% Usage:
-%   1. Set SUBJECT_FILES below to match your data filenames.
-%   2. Place this file and repDetector_x4_strongChannel.m in the same folder.
-%   3. Run: >> analyse_all
 %
 % Requires: Signal Processing Toolbox (butter, filtfilt, freqz)
 
@@ -219,20 +221,55 @@ for s = 1:nSubjects
 
                 rms_vals(r,ch)    = rms(sig);
                 energy_vals(r,ch) = sum(sig.^2);
+        % Use silence OUTSIDE the burst (before/after) as noise reference
+        % instead of window edges (which contain vowel signal)
+        
+        X_full = signals{v};  % Full signal for this vowel
+        N_full = size(X_full, 1);
+        
+        burst_start = D.starts(r);
+        burst_end   = D.ends(r);
+        
+        % Get 100ms of silence before and after the burst
+        pre_len  = round(0.1 * Fs);
+        post_len = round(0.1 * Fs);
+        
+        pre_start  = max(1, burst_start - pre_len);
+        pre_end    = max(1, burst_start - 1);
+        post_start = min(N_full, burst_end + 1);
+        post_end   = min(N_full, burst_end + post_len);
+        
+        % Extract noise samples from silent regions
+        if pre_end >= pre_start && post_end >= post_start
+            noise_pre  = X_full(pre_start:pre_end, ch);
+            noise_post = X_full(post_start:post_end, ch);
+            noise = [noise_pre; noise_post];
+        elseif pre_end >= pre_start
+            noise = X_full(pre_start:pre_end, ch);
+        elseif post_end >= post_start
+            noise = X_full(post_start:post_end, ch);
+        else
+            noise = [];
+        end
+        
+        % Compute SNR using central 80% of window as signal
+        n     = numel(sig);
+        n80s  = round(0.10*n);
+        n80e  = round(0.90*n);
+        s_mid = sig(n80s:n80e);
+        p_sig = mean(s_mid.^2);
+        
+        if ~isempty(noise) && numel(noise) > 10
+            p_noise = mean(noise.^2);
+            if p_noise > 0
+                snr_vals(r,ch) = 10*log10(p_sig / p_noise);
+            else
+                snr_vals(r,ch) = Inf;
+            end
+        else
+            snr_vals(r,ch) = NaN;  
+        end
 
-                n       = numel(sig);
-                n5      = max(1, round(0.05*n));
-                n80s    = round(0.10*n);
-                n80e    = round(0.90*n);
-                noise   = [sig(1:n5); sig(end-n5+1:end)];
-                s_mid   = sig(n80s:n80e);
-                p_sig   = mean(s_mid.^2);
-                p_noise = mean(noise.^2);
-                if p_noise > 0
-                    snr_vals(r,ch) = 10*log10(p_sig / p_noise);
-                else
-                    snr_vals(r,ch) = Inf;
-                end
 
                 fprintf('  [%s|%s] Rep%d Ch%d | RMS=%.5f | E=%.5f | SNR=%.2f dB\n', ...
                         subLabel, vname, r, ch, rms_vals(r,ch), energy_vals(r,ch), snr_vals(r,ch));
